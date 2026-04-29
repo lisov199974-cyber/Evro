@@ -133,6 +133,16 @@ async function init(){
     sb.from('esc_predictions').select('*')
   ]);
   countries=cR.data||[];
+
+  /* патч флагов — если в базе есть страны без флагов */
+  const flagMap={'Австрия':'🇦🇹','Албания':'🇦🇱','Армения':'🇦🇲','Австралия':'🇦🇺','Азербайджан':'🇦🇿','Бельгия':'🇧🇪','Швейцария':'🇨🇭','Кипр':'🇨🇾','Чехия':'🇨🇿','Дания':'🇩🇰','Эстония':'🇪🇪','Финляндия':'🇫🇮','Франция':'🇫🇷','Великобритания':'🇬🇧','Грузия':'🇬🇪','Германия':'🇩🇪','Греция':'🇬🇷','Хорватия':'🇭🇷','Израиль':'🇮🇱','Италия':'🇮🇹','Литва':'🇱🇹','Люксембург':'🇱🇺','Молдова':'🇲🇩','Мальта':'🇲🇹','Норвегия':'🇳🇴','Польша':'🇵🇱','Португалия':'🇵🇹','Румыния':'🇷🇴','Сербия':'🇷🇸','Швеция':'🇸🇪','Сан-Марино':'🇸🇲','Словения':'🇸🇮','Украина':'🇺🇦'};
+  for(const c of countries){
+    if(!c.flag && flagMap[c.name]){
+      c.flag=flagMap[c.name];
+      sb.from('esc_countries').update({flag:flagMap[c.name]}).eq('id',c.id);
+    }
+  }
+
   if(!countries.length){
     const tmp=[
       {id:1,flag:'🇦🇹',name:'Австрия',artist:'JJ',order_num:1},
@@ -261,7 +271,7 @@ function buildMain(){
     (settings.predictions_reveal==='true'?'<div class="card-col" style="background:var(--lav);display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="buildPredReveal()"><div style="flex:1;"><div class="f-xs" style="color:rgba(255,255,255,.7);margin-bottom:2px;">ПРЕДИКТЫ</div><div class="f-h3" style="color:#fff;">Смотреть предикты 🔮</div></div><div style="color:rgba(255,255,255,.6);font-size:20px;">›</div></div>':'')+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px;"><div class="f-h3">Мои оценки</div></div>'+
     (voted.length?
-      '<div class="card" style="padding:0 14px;">'+voted.map(c=>{const avg=((c.vote.song_score+c.vote.show_score)/2).toFixed(1);return'<div class="row">'+fc(c.flag)+'<div style="flex:1;min-width:0;"><div class="f-h3" style="font-size:14px;">'+esc(c.name)+'</div><div class="f-sm">'+esc(c.artist||'')+'</div></div><div style="text-align:right;flex-shrink:0;"><div style="font-size:16px;font-weight:700;color:var(--coral);font-family:\'Plus Jakarta Sans\',sans-serif;">'+avg+'</div><div class="f-xs" style="text-transform:none;letter-spacing:0;">ср. балл</div></div></div>'}).join('')+'</div>':
+      '<div class="card" style="padding:0 14px;">'+voted.map(c=>{const avg=((c.vote.song_score+c.vote.show_score)/2).toFixed(1);return'<div class="row">'+fc(c.flag)+'<div style="flex:1;min-width:0;"><div class="f-h3" style="font-size:14px;">'+esc(c.name)+'</div><div class="f-sm">'+esc(c.artist||'')+'</div></div><div style="display:flex;gap:5px;flex-shrink:0;"><div style="text-align:center;background:#f0eef8;border-radius:7px;padding:4px 6px;"><div style="font-size:9px;color:#9DA7D0;font-weight:600;text-transform:uppercase;">Песня</div><div style="font-size:13px;font-weight:700;color:#9DA7D0;font-family:\'Plus Jakarta Sans\',sans-serif;">'+c.vote.song_score.toFixed(1)+'</div></div><div style="text-align:center;background:#fce8e6;border-radius:7px;padding:4px 6px;"><div style="font-size:9px;color:var(--rose);font-weight:600;text-transform:uppercase;">Шоу</div><div style="font-size:13px;font-weight:700;color:var(--rose);font-family:\'Plus Jakarta Sans\',sans-serif;">'+c.vote.show_score.toFixed(1)+'</div></div><div style="text-align:center;background:#fce8e6;border-radius:7px;padding:4px 7px;"><div style="font-size:9px;color:var(--coral);font-weight:600;text-transform:uppercase;">Ср.</div><div style="font-size:13px;font-weight:700;color:var(--coral);font-family:\'Plus Jakarta Sans\',sans-serif;">'+avg+'</div></div></div></div>'}).join('')+'</div>':
       '<div class="card" style="text-align:center;padding:24px;color:var(--light);font-size:14px;">Нет оценок · нажми «+ Оценить»</div>')+
     '</div>';
   $('screens').appendChild(div);
