@@ -78,6 +78,12 @@ html,body{height:100%;background:var(--bg);color:var(--dark);font-family:'Inter'
 .rv-place{font-family:'Plus Jakarta Sans',sans-serif;font-size:56px;font-weight:800;color:#fff;line-height:1;letter-spacing:-2px}
 .rv-country{font-family:'Plus Jakarta Sans',sans-serif;font-size:22px;font-weight:700;color:#fff}
 .rv-sbox{background:rgba(255,255,255,.9);border-radius:8px;display:inline-block;padding:8px 20px;margin-top:12px}
+.wait-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:32px;text-align:center}
+.pulse{animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.95)}}
+.match-exact{background:#d4edda;border:2px solid #28a745;border-radius:var(--r)}
+.no-match{opacity:.5}
+.winner-card{background:linear-gradient(135deg,var(--yellow),#ffb300);border-radius:var(--r);padding:14px;text-align:center;margin-bottom:8px}
 .v-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;margin:3px}
 .adm-sec{background:var(--bg2);border-radius:var(--r);padding:14px;margin-bottom:10px}
 .adm-ttl{font-size:10px;font-weight:700;color:var(--light);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px}
@@ -188,7 +194,33 @@ async function init(){
   allVotes={};(vR.data||[]).forEach(v=>{if(!allVotes[v.user_name])allVotes[v.user_name]={};allVotes[v.user_name][v.country_id]=v});
   myVotes=currentUser?(allVotes[currentUser]||{}):{};
   predictions={};(pR.data||[]).forEach(p=>predictions[p.user_name]=p.picks);
+  await loadOfficialTop5();
   if(!currentUser)buildLogin();else buildMain();
+
+  /* ── Realtime: sync reveal for non-admin users ── */
+  sb.channel('esc_settings_rt')
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'esc_settings'},payload=>{
+      const {key,value}=payload.new;
+      settings[key]=value;
+      /* auto-open reveal when admin starts */
+      if(key==='reveal_state'&&value&&currentUser!==ADMIN_NAME){
+        const st=JSON.parse(value);
+        _rph=st.phase;_ri=st.index;_rd=calcRes(st.phase);
+        if(!$('s-rev')){
+          buildReveal(true);
+        } else {
+          renderRev($('s-rev'));
+        }
+      }
+      /* auto-open predict reveal */
+      if(key==='predictions_reveal'&&value==='true'&&currentUser!==ADMIN_NAME){
+        removeScreen('s-main');buildMain();
+      }
+      if(key==='reveal_active'){
+        removeScreen('s-main');buildMain();
+      }
+    })
+    .subscribe();
 }
 
 /* ── LOGIN ── */
@@ -400,7 +432,13 @@ function calcRes(ph){
   return Object.values(s).filter(x=>x.count>0).sort((a,b)=>(b.total/b.count)-(a.total/a.count)).slice(0,5).reverse();
 }
 
-function buildReveal(){_rph='song';_rd=calcRes('song');_ri=-1;removeScreen('s-rev');const d=document.createElement('div');d.className='screen active';d.id='s-rev';$('screens').appendChild(d);renderRev(d);setScreen('s-rev')}
+function buildReveal(fromRealtime){
+  _rph=_rph||'song';
+  if(!fromRealtime){_rd=calcRes('song');_ri=-1;}else{_rd=calcRes(_rph);}
+  removeScreen('s-rev');
+  const d=document.createElement('div');d.className='screen active';d.id='s-rev';
+  $('screens').appendChild(d);renderRev(d);setScreen('s-rev');
+}
 
 function renderRev(c){
   if(_ri<0){
@@ -431,27 +469,145 @@ function renderRev(c){
     '<div class="card" style="margin-bottom:8px;"><div class="f-xs" style="margin-bottom:8px;">ОЦЕНКИ УЧАСТНИКОВ</div>'+
     Object.entries(item.voters).map(([u,sc])=>'<div class="v-chip" style="background:var(--bg);width:100%;"><div style="width:26px;height:26px;border-radius:7px;background:'+bg+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:\'Plus Jakarta Sans\',sans-serif;">'+esc(u.charAt(0).toUpperCase())+'</div><div class="f-sm" style="font-weight:600;">'+esc(u)+'</div><div style="margin-left:auto;font-size:13px;font-weight:700;color:'+bg+';font-family:\'Plus Jakarta Sans\',sans-serif;">'+sc+'</div></div>').join('')+
     '</div>'+
-    '<button class="btn btn-dark" onclick="rnext()">'+(last&&_rph==='total'?'🎊 Конец!':last?'▶ Следующая категория':'▶ Следующее место')+'</button>'+
+    (currentUser===ADMIN_NAME?'<button class="btn btn-dark" onclick="rnext()">'+(last&&_rph==='total'?'🎊 Конец!':last?'▶ Следующая категория':'▶ Следующее место')+'</button>':'<div style="text-align:center;font-size:13px;color:var(--muted);padding:8px;">Ждём следующего...</div>')+
     '</div>';
   if(place===1)confetti();
 }
 
-function rnext(){_ri++;if(_ri>=_rd.length){if(_rph==='song'){_rph='show';_rd=calcRes('show')}else if(_rph==='show'){_rph='total';_rd=calcRes('total')}_ri=-1}const c=$('s-rev');if(c)renderRev(c)}
+function rnext(){
+  _ri++;
+  if(_ri>=_rd.length){
+    if(_rph==='song'){_rph='show';_rd=calcRes('show')}
+    else if(_rph==='show'){_rph='total';_rd=calcRes('total')}
+    _ri=-1;
+  }
+  const c=$('s-rev');if(c)renderRev(c);
+  /* sync to DB so others see same state */
+  if(currentUser===ADMIN_NAME){
+    sb.from('esc_settings').upsert({key:'reveal_state',value:JSON.stringify({phase:_rph,index:_ri})},{onConflict:'key'});
+  }
+}
 function setRP(p){_rph=p;_rd=calcRes(p);_ri=-1;const c=$('s-rev');if(c)renderRev(c)}
 
 function confetti(){const cols=['#E0533D','#E78C9D','#EED868','#9DA7D0','#469B88','#377CC8'];for(let i=0;i<60;i++){const el=document.createElement('div'),sz=Math.random()*8+4;el.style.cssText='position:fixed;pointer-events:none;z-index:999;border-radius:2px;left:'+Math.random()*100+'%;width:'+sz+'px;height:'+sz*.6+'px;background:'+cols[Math.floor(Math.random()*cols.length)]+';animation:cfFall '+(Math.random()*2+1.5)+'s linear '+Math.random()*.5+'s forwards';document.body.appendChild(el);setTimeout(()=>el.remove(),3000)}}
 
 /* ── PREDICT REVEAL ── */
+let officialTop5=[]; /* filled by admin */
+
 function buildPredReveal(){
-  removeScreen('s-pr');const div=document.createElement('div');div.className='screen active';div.id='s-pr';
+  removeScreen('s-pr');
+  const div=document.createElement('div');div.className='screen active';div.id='s-pr';
+  $('screens').appendChild(div);
+  renderPredReveal(div);
+  setScreen('s-pr');
+}
+
+async function loadOfficialTop5(){
+  const {data}=await sb.from('esc_settings').select('value').eq('key','official_top5').single();
+  if(data&&data.value){try{officialTop5=JSON.parse(data.value)}catch(e){officialTop5=[]}}
+}
+
+async function saveOfficialTop5(){
+  officialTop5=officialTop5.filter(Boolean);
+  await sb.from('esc_settings').upsert({key:'official_top5',value:JSON.stringify(officialTop5)},{onConflict:'key'});
+  toast('Официальный топ-5 сохранён!');
+  const d=$('s-pr');if(d)renderPredReveal(d);
+}
+
+function renderPredReveal(div){
   const users=Object.keys(predictions);
-  div.innerHTML='<div class="abar-sm"><button onclick="removeScreen(\'s-pr\');buildMain();" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;font-size:18px;cursor:pointer;color:var(--dark);display:flex;align-items:center;justify-content:center;">‹</button><div><div class="f-h3">🔮 Предикты</div><div class="f-sm">'+users.length+' участников</div></div></div>'+
+  const hasOfficial=officialTop5.length===5;
+
+  /* score each user's prediction */
+  function userScore(picks){
+    if(!hasOfficial)return 0;
+    let sc=0;
+    picks.filter(Boolean).forEach((cid,i)=>{if(String(officialTop5[i])===String(cid))sc++});
+    return sc;
+  }
+  const scored=users.map(u=>({u,score:userScore(predictions[u]||[])})).sort((a,b)=>b.score-a.score);
+  const maxScore=scored.length?scored[0].score:0;
+  const winners=scored.filter(x=>x.score===maxScore&&x.score>0).map(x=>x.u);
+
+  div.innerHTML=
+    '<div class="abar-sm">'+
+      '<button onclick="removeScreen('s-pr');buildMain();" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;font-size:18px;cursor:pointer;color:var(--dark);display:flex;align-items:center;justify-content:center;">‹</button>'+
+      '<div><div class="f-h3">🔮 Предикты</div><div class="f-sm">'+users.length+' участников</div></div>'+
+    '</div>'+
     '<div class="pad">'+
-    (users.length?users.map(u=>{const pks=predictions[u];return'<div class="card" style="margin-bottom:8px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><div class="avatar" style="font-size:13px;">'+esc(u.charAt(0).toUpperCase())+'</div><div class="f-h3" style="font-size:14px;">'+esc(u)+'</div></div>'+pks.filter(Boolean).map((cid,i)=>{const c=countries.find(x=>String(x.id)===String(cid));if(!c)return'';return'<div class="row" style="padding:7px 0;"><div class="f-xs" style="width:18px;text-align:center;">'+(i+1)+'</div>'+fc(c.flag,'sm',c.name)+'<div class="f-h3" style="font-size:13px;">'+esc(c.name)+'</div></div>'}).join('')+'</div>'}).join(''):
+
+    /* ADMIN: enter official top5 */
+    (currentUser===ADMIN_NAME?
+      '<div class="adm-sec" style="margin-bottom:10px;">'+
+        '<div class="adm-ttl">Официальный топ-5 Eurovision</div>'+
+        '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;" id="off5-slots">'+
+        [0,1,2,3,4].map(i=>{
+          const cid=officialTop5[i];
+          const c=cid?countries.find(x=>String(x.id)===String(cid)):null;
+          return'<div style="display:flex;align-items:center;gap:8px;">'+
+            '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">'+(i+1)+'</div>'+
+            '<select class="ei" onchange="setOff5('+i+',this.value)" style="flex:1;">'+
+              '<option value="">— место '+(i+1)+' —</option>'+
+              countries.map(co=>'<option value="'+co.id+'" '+(String(cid)===String(co.id)?'selected':'')+'>'+co.name+'</option>').join('')+
+            '</select>'+
+          '</div>';
+        }).join('')+
+        '</div>'+
+        '<button class="btn btn-dark" onclick="saveOfficialTop5()" style="padding:10px;">Сохранить официальный топ-5</button>'+
+      '</div>' : '')+
+
+    /* OFFICIAL TOP5 display */
+    (hasOfficial?
+      '<div class="f-xs" style="margin-bottom:8px;">ОФИЦИАЛЬНЫЙ РЕЗУЛЬТАТ EUROVISION</div>'+
+      '<div class="card" style="padding:0 14px;margin-bottom:14px;">'+
+      officialTop5.map((cid,i)=>{
+        const c=countries.find(x=>String(x.id)===String(cid));
+        if(!c)return'';
+        const medals=['🥇','🥈','🥉','4️⃣','5️⃣'];
+        return'<div class="row" style="padding:8px 0;">'+
+          '<div style="font-size:18px;width:26px;">'+medals[i]+'</div>'+
+          fc(c.flag,'sm',c.name)+
+          '<div class="f-h3" style="font-size:14px;">'+esc(c.name)+'</div>'+
+        '</div>';
+      }).join('')+
+      '</div>' : '')+
+
+    /* WINNER badge */
+    (hasOfficial&&winners.length?
+      '<div class="winner-card">'+
+        '<div class="f-xs" style="color:rgba(0,0,0,.5);margin-bottom:4px;">🏆 ЛУЧШИЙ ПРЕДИКТ</div>'+
+        '<div style="font-size:18px;font-weight:800;color:var(--dark);">'+winners.map(w=>esc(w)).join(', ')+'</div>'+
+        '<div style="font-size:13px;color:rgba(0,0,0,.5);margin-top:2px;">'+maxScore+' точных совпадений из 5</div>'+
+      '</div>' : '')+
+
+    /* EACH USER prediction */
+    '<div class="f-xs" style="margin:12px 0 8px;">ПРЕДИКТЫ УЧАСТНИКОВ</div>'+
+    (users.length?scored.map(({u,score})=>{
+      const pks=predictions[u]||[];
+      return'<div class="card" style="margin-bottom:8px;">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
+          '<div class="avatar" style="font-size:13px;">'+esc(u.charAt(0).toUpperCase())+'</div>'+
+          '<div class="f-h3" style="font-size:14px;flex:1;">'+esc(u)+'</div>'+
+          (hasOfficial?'<div style="background:var(--ok);color:#fff;border-radius:8px;padding:3px 10px;font-size:12px;font-weight:700;">'+score+'/5 ✓</div>':'')+
+        '</div>'+
+        pks.filter(Boolean).map((cid,i)=>{
+          const c=countries.find(x=>String(x.id)===String(cid));
+          if(!c)return'';
+          const isMatch=hasOfficial&&String(officialTop5[i])===String(cid);
+          return'<div class="row '+(isMatch?'match-exact':'')+(hasOfficial&&!isMatch?' no-match':'')+'" style="padding:8px '+(isMatch?'10px':'0')+';">'+
+            '<div style="font-size:11px;font-weight:700;color:var(--muted);width:18px;text-align:center;">'+(i+1)+'</div>'+
+            fc(c.flag,'sm',c.name)+
+            '<div style="flex:1;"><div class="f-h3" style="font-size:13px;">'+esc(c.name)+'</div></div>'+
+            (isMatch?'<div style="color:var(--ok);font-size:16px;">✓</div>':'')+
+          '</div>';
+        }).join('')+
+      '</div>';
+    }).join(''):
     '<div class="card" style="text-align:center;padding:24px;color:var(--light);">Предиктов пока нет</div>')+
     '</div>';
-  $('screens').appendChild(div);setScreen('s-pr');
 }
+
+function setOff5(i,val){officialTop5[i]=val?parseInt(val):'';}
 
 /* ── ADMIN ── */
 function buildAdmin(){
