@@ -197,30 +197,44 @@ async function init(){
   await loadOfficialTop5();
   if(!currentUser)buildLogin();else buildMain();
 
-  /* ── Realtime: sync reveal for non-admin users ── */
-  sb.channel('esc_settings_rt')
-    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'esc_settings'},payload=>{
-      const {key,value}=payload.new;
-      settings[key]=value;
-      /* auto-open reveal when admin starts */
-      if(key==='reveal_state'&&value&&currentUser!==ADMIN_NAME){
-        const st=JSON.parse(value);
-        _rph=st.phase;_ri=st.index;_rd=calcRes(st.phase);
-        if(!$('s-rev')){
-          buildReveal(true);
-        } else {
-          renderRev($('s-rev'));
-        }
+  /* ── Polling: sync reveal state every 2s ── */
+  startPolling();
+}
+
+let _pollTimer=null;
+function startPolling(){
+  clearInterval(_pollTimer);
+  _pollTimer=setInterval(async()=>{
+    const {data}=await sb.from('esc_settings').select('*');
+    if(!data)return;
+    let changed=false;
+    data.forEach(r=>{if(settings[r.key]!==r.value){settings[r.key]=r.value;changed=true;}});
+    if(!changed)return;
+
+    /* sync reveal state for non-admin */
+    if(currentUser!==ADMIN_NAME){
+      const rvState=settings.reveal_state;
+      if(rvState){
+        try{
+          const st=JSON.parse(rvState);
+          if(st&&typeof st.index==='number'){
+            const wasOpen=!!$('s-rev');
+            _rph=st.phase||'song';
+            _ri=st.index;
+            _rd=calcRes(_rph);
+            if(!wasOpen){
+              /* auto-open reveal screen */
+              buildReveal(true);
+            } else {
+              renderRev($('s-rev'));
+            }
+          }
+        }catch(e){}
       }
-      /* auto-open predict reveal */
-      if(key==='predictions_reveal'&&value==='true'&&currentUser!==ADMIN_NAME){
-        removeScreen('s-main');buildMain();
-      }
-      if(key==='reveal_active'){
-        removeScreen('s-main');buildMain();
-      }
-    })
-    .subscribe();
+      /* refresh main if settings changed */
+      if($('s-main'))buildMain();
+    }
+  },2000);
 }
 
 /* ── LOGIN ── */
@@ -434,7 +448,17 @@ function calcRes(ph){
 
 function buildReveal(fromRealtime){
   _rph=_rph||'song';
-  if(!fromRealtime){_rd=calcRes('song');_ri=-1;}else{_rd=calcRes(_rph);}
+  if(!fromRealtime){
+    _rd=calcRes('song');_ri=-1;
+    /* write initial state so others can join */
+    if(currentUser===ADMIN_NAME){
+      sb.from('esc_settings').upsert({key:'reveal_state',value:JSON.stringify({phase:'song',index:-1})},{onConflict:'key'});
+      sb.from('esc_settings').upsert({key:'reveal_active',value:'true'},{onConflict:'key'});
+      settings.reveal_active='true';
+    }
+  } else {
+    _rd=calcRes(_rph);
+  }
   removeScreen('s-rev');
   const d=document.createElement('div');d.className='screen active';d.id='s-rev';
   $('screens').appendChild(d);renderRev(d);setScreen('s-rev');
