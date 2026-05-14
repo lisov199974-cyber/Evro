@@ -417,14 +417,14 @@ function renderSSheet(){
     '<div class="sl-card" style="background:var(--coral);">'+
       '<div class="sl-lbl"><div class="xs" style="color:rgba(255,255,255,.7);">🎵 ПЕСНЯ</div><div class="sl-val" id="sv">'+_ss.toFixed(1)+'</div></div>'+
       '<div class="sl-track"><div class="sl-fill" id="sf" style="width:'+(_ss*10)+'%;"></div>'+
-      '<div class="sl-thumb" id="st" style="left:calc('+(_ss*10)+'% - 10px);"></div>'+
+      '<div class="sl-thumb" id="st" style="left:calc('+(_ss*20)+'% - 10px);"></div>'+
       '<input type="range" min="0" max="50" step="1" value="'+Math.round(_ss*10)+'" class="sl-range" oninput="upd(\'song\',this.value)"></div>'+
       '<div class="sl-mm"><span>0.0</span><span>5.0</span></div>'+
     '</div>'+
     '<div class="sl-card" style="background:var(--rose);">'+
       '<div class="sl-lbl"><div class="xs" style="color:rgba(255,255,255,.7);">🎭 ШОУ</div><div class="sl-val" id="hv">'+_hs.toFixed(1)+'</div></div>'+
       '<div class="sl-track"><div class="sl-fill" id="hf" style="width:'+(_hs*10)+'%;"></div>'+
-      '<div class="sl-thumb" id="ht" style="left:calc('+(_hs*10)+'% - 10px);"></div>'+
+      '<div class="sl-thumb" id="ht" style="left:calc('+(_hs*20)+'% - 10px);"></div>'+
       '<input type="range" min="0" max="50" step="1" value="'+Math.round(_hs*10)+'" class="sl-range" oninput="upd(\'show\',this.value)"></div>'+
       '<div class="sl-mm"><span>0.0</span><span>5.0</span></div>'+
     '</div>'+
@@ -437,8 +437,8 @@ function renderSSheet(){
 
 function upd(t,v){
   const val=v/10;
-  if(t==='song'){_ss=val;const s=$('sv'),f=$('sf'),th=$('st');if(s)s.textContent=val.toFixed(1);if(f)f.style.width=(val*10)+'%';if(th)th.style.left='calc('+(val*10)+'% - 10px)'}
-  else{_hs=val;const s=$('hv'),f=$('hf'),th=$('ht');if(s)s.textContent=val.toFixed(1);if(f)f.style.width=(val*10)+'%';if(th)th.style.left='calc('+(val*10)+'% - 10px)'}
+  if(t==='song'){_ss=val;const s=$('sv'),f=$('sf'),th=$('st');if(s)s.textContent=val.toFixed(1);if(f)f.style.width=(val*20)+'%';if(th)th.style.left='calc('+(val*20)+'% - 10px)'}
+  else{_hs=val;const s=$('hv'),f=$('hf'),th=$('ht');if(s)s.textContent=val.toFixed(1);if(f)f.style.width=(val*20)+'%';if(th)th.style.left='calc('+(val*20)+'% - 10px)'}
   const av=$('av');if(av)av.textContent=((_ss+_hs)/2).toFixed(1);
 }
 
