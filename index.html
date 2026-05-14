@@ -107,7 +107,8 @@ html,body{height:100%;background:var(--bg);color:var(--dark);font-family:'Inter'
 
 /* PREDICT */
 .match{background:#d4f5dd;border:2px solid var(--ok);border-radius:var(--r);padding:8px 10px}
-.no-match{opacity:.45}
+.partial-match{background:#e8f0fd;border:2px solid var(--blue);border-radius:var(--r);padding:8px 10px}
+.no-match{opacity:.35}
 .winner{background:linear-gradient(135deg,var(--yellow),#ffb300);border-radius:var(--r);padding:16px;text-align:center;margin-bottom:10px}
 
 /* ADMIN */
@@ -239,16 +240,25 @@ function startPolling(){
 
     settings=newSettings;
 
-    /* also refresh votes data for reveal accuracy */
-    if(newMode==='reveal'||newMode==='predict'){
-      const[vR2,pR2]=await Promise.all([
-        sb.from('esc_votes').select('*'),
-        sb.from('esc_predictions').select('*')
-      ]);
-      allVotes={};(vR2.data||[]).forEach(v=>{if(!allVotes[v.user_name])allVotes[v.user_name]={};allVotes[v.user_name][v.country_id]=v});
-      myVotes=me?(allVotes[me]||{}):{};
-      predictions={};(pR2.data||[]).forEach(p=>predictions[p.user_name]=p.picks);
-      try{off5=JSON.parse(settings.official_top5||'[]')}catch(e){off5=[]}
+    /* refresh votes + predictions every poll tick for everyone */
+    const[vR2,pR2]=await Promise.all([
+      sb.from('esc_votes').select('*'),
+      sb.from('esc_predictions').select('*')
+    ]);
+    const newAllVotes={};
+    (vR2.data||[]).forEach(v=>{if(!newAllVotes[v.user_name])newAllVotes[v.user_name]={};newAllVotes[v.user_name][v.country_id]=v});
+    const newPreds={};
+    (pR2.data||[]).forEach(p=>newPreds[p.user_name]=p.picks);
+    /* check if data changed — if so update and refresh main screen */
+    const vChanged=JSON.stringify(newAllVotes)!==JSON.stringify(allVotes);
+    const pChanged=JSON.stringify(newPreds)!==JSON.stringify(predictions);
+    allVotes=newAllVotes;
+    myVotes=me?(allVotes[me]||{}):{};
+    predictions=newPreds;
+    try{off5=JSON.parse(settings.official_top5||'[]')}catch(e){off5=[]}
+    if((vChanged||pChanged)&&newMode==='vote'&&$('s-main')){
+      /* silently rebuild main screen to show fresh data */
+      buildMain();
     }
   },1500);
 }
@@ -740,12 +750,24 @@ function renderPredRev(div){
   const users=Object.keys(predictions);
   const hasOff=off5.filter(Boolean).length===5;
 
-  function score(picks){
+  /* scoring: exact place=1.0, off by 1=0.5, off by 2=0.25, off by 3+=0 */
+  function pointsForPick(cid,pickPos){
     if(!hasOff)return 0;
-    return picks.filter(Boolean).filter((cid,i)=>String(off5[i])===String(cid)).length;
+    const realPos=off5.findIndex(x=>String(x)===String(cid));
+    if(realPos===-1)return 0; /* not in top5 at all */
+    const diff=Math.abs(realPos-pickPos);
+    if(diff===0)return 1.0;
+    if(diff===1)return 0.5;
+    if(diff===2)return 0.25;
+    return 0;
   }
 
-  const scored=users.map(u=>({u,sc:score(predictions[u]||[])})).sort((a,b)=>b.sc-a.sc);
+  function score(picks){
+    if(!hasOff)return 0;
+    return picks.filter(Boolean).reduce((sum,cid,i)=>sum+pointsForPick(cid,i),0);
+  }
+
+  const scored=users.map(u=>({u,sc:Math.round(score(predictions[u]||[])*100)/100})).sort((a,b)=>b.sc-a.sc);
   const maxSc=scored.length?scored[0].sc:0;
   const winners=scored.filter(x=>x.sc===maxSc&&x.sc>0).map(x=>x.u);
 
@@ -772,7 +794,7 @@ function renderPredRev(div){
       '<div class="winner">'+
         '<div class="xs" style="color:rgba(0,0,0,.5);margin-bottom:4px;">🏆 ЛУЧШИЙ ПРЕДИКТ</div>'+
         '<div style="font-size:20px;font-weight:800;color:var(--dark);">'+winners.map(w=>esc(w)).join(', ')+'</div>'+
-        '<div style="font-size:13px;color:rgba(0,0,0,.5);margin-top:2px;">'+maxSc+' точных совпадений из 5</div>'+
+        '<div style="font-size:13px;color:rgba(0,0,0,.5);margin-top:2px;">'+maxSc+' баллов из 5</div>'+
       '</div>' : '')+
 
     /* user predictions */
@@ -783,16 +805,22 @@ function renderPredRev(div){
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'+
           '<div class="av" style="font-size:13px;">'+esc(u.charAt(0).toUpperCase())+'</div>'+
           '<div class="h3" style="font-size:14px;flex:1;">'+esc(u)+'</div>'+
-          (hasOff?'<div style="background:var(--ok);color:#fff;border-radius:8px;padding:3px 10px;font-size:12px;font-weight:700;">'+sc+'/5 ✓</div>':'')+
+          (hasOff?'<div style="background:var(--ok);color:#fff;border-radius:8px;padding:3px 10px;font-size:12px;font-weight:700;">'+sc+' / 5 pts</div>':'')+
         '</div>'+
         pks.filter(Boolean).map((cid,i)=>{
           const c=countries.find(x=>String(x.id)===String(cid));if(!c)return'';
-          const isMatch=hasOff&&String(off5[i])===String(cid);
-          return'<div class="row '+(isMatch?'match':'')+(hasOff&&!isMatch?' no-match':'')+'" style="padding:8px '+(isMatch?'10px':'0')+';border-radius:'+(isMatch?'var(--r)':'0')+';">'+
+          const pts=hasOff?pointsForPick(cid,i):null;
+          const isExact=pts===1.0;
+          const isPartial=pts>0&&pts<1;
+          const isNone=hasOff&&pts===0;
+          const rowBg=isExact?'match':isPartial?'partial-match':isNone?'no-match':'';
+          const ptLabel=pts===1?'✓ +1':pts===0.5?'+0.5':pts===0.25?'+0.25':'';
+          const ptColor=isExact?'var(--ok)':isPartial?'var(--blue)':'var(--light)';
+          return'<div class="row '+rowBg+'" style="padding:8px '+(rowBg&&rowBg!=='no-match'?'10px':'0')+';border-radius:'+(rowBg&&rowBg!=='no-match'?'var(--r)':'0')+';">'+
             '<div style="font-size:11px;font-weight:700;color:var(--muted);width:18px;text-align:center;">'+(i+1)+'</div>'+
             flagEl(c.name,'sm')+
             '<div style="flex:1;"><div class="h3" style="font-size:13px;">'+esc(c.name)+'</div></div>'+
-            (isMatch?'<div style="color:var(--ok);font-size:16px;font-weight:700;">✓</div>':'')+
+            (hasOff&&ptLabel?'<div style="font-size:12px;font-weight:700;color:'+ptColor+';">'+ptLabel+'</div>':'')+
           '</div>';
         }).join('')+
       '</div>';
@@ -846,17 +874,19 @@ function renderAdm(c){
     '<div class="adm-sec">'+
       '<div class="adm-ttl">Официальный топ-5 Eurovision</div>'+
       [0,1,2,3,4].map(i=>{
-        const cid=off5[i];
-        /* exclude countries already selected in other slots */
-        const otherSelected=off5.filter((_,j)=>j!==i&&off5[j]);
+        const cid=String(off5[i]||'');
+        /* ids already chosen in OTHER slots */
+        const taken=new Set(off5.filter((_,j)=>j!==i).map(x=>String(x||'')).filter(Boolean));
+        const selC=cid?countries.find(co=>String(co.id)===cid):null;
         return'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
           '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">'+(i+1)+'</div>'+
           '<select class="ei" onchange="setOff('+i+',this.value);renderAdm($(\'s-adm\'))">'+
             '<option value="">— место '+(i+1)+' —</option>'+
-            countries.filter(co=>!otherSelected.includes(String(co.id))&&String(co.id)!==String(cid)||String(co.id)===String(cid))
-              .map(co=>'<option value="'+co.id+'" '+(String(cid)===String(co.id)?'selected':'')+'>'+co.name+'</option>').join('')+
+            countries
+              .filter(co=>!taken.has(String(co.id))||String(co.id)===cid)
+              .map(co=>'<option value="'+co.id+'" '+(String(co.id)===cid?'selected':'')+'>'+co.name+'</option>').join('')+
           '</select>'+
-          (cid?flagEl(countries.find(co=>String(co.id)===String(cid))?.name||'','sm'):'')+
+          (selC?flagEl(selC.name,'sm'):'')+
         '</div>';
       }).join('')+
       '<button class="btn btn-dk" style="margin-top:4px;padding:11px;" onclick="saveOff5()">Сохранить официальный топ-5</button>'+
