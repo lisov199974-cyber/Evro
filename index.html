@@ -238,6 +238,18 @@ function startPolling(){
     }
 
     settings=newSettings;
+
+    /* also refresh votes data for reveal accuracy */
+    if(newMode==='reveal'||newMode==='predict'){
+      const[vR2,pR2]=await Promise.all([
+        sb.from('esc_votes').select('*'),
+        sb.from('esc_predictions').select('*')
+      ]);
+      allVotes={};(vR2.data||[]).forEach(v=>{if(!allVotes[v.user_name])allVotes[v.user_name]={};allVotes[v.user_name][v.country_id]=v});
+      myVotes=me?(allVotes[me]||{}):{};
+      predictions={};(pR2.data||[]).forEach(p=>predictions[p.user_name]=p.picks);
+      try{off5=JSON.parse(settings.official_top5||'[]')}catch(e){off5=[]}
+    }
   },1500);
 }
 
@@ -416,14 +428,14 @@ function renderSSheet(){
     '</div>'+
     '<div class="sl-card" style="background:var(--coral);">'+
       '<div class="sl-lbl"><div class="xs" style="color:rgba(255,255,255,.7);">🎵 ПЕСНЯ</div><div class="sl-val" id="sv">'+_ss.toFixed(1)+'</div></div>'+
-      '<div class="sl-track"><div class="sl-fill" id="sf" style="width:'+(_ss*10)+'%;"></div>'+
+      '<div class="sl-track"><div class="sl-fill" id="sf" style="width:'+(_ss*20)+'%;"></div>'+
       '<div class="sl-thumb" id="st" style="left:calc('+(_ss*20)+'% - 10px);"></div>'+
       '<input type="range" min="0" max="50" step="1" value="'+Math.round(_ss*10)+'" class="sl-range" oninput="upd(\'song\',this.value)"></div>'+
       '<div class="sl-mm"><span>0.0</span><span>5.0</span></div>'+
     '</div>'+
     '<div class="sl-card" style="background:var(--rose);">'+
       '<div class="sl-lbl"><div class="xs" style="color:rgba(255,255,255,.7);">🎭 ШОУ</div><div class="sl-val" id="hv">'+_hs.toFixed(1)+'</div></div>'+
-      '<div class="sl-track"><div class="sl-fill" id="hf" style="width:'+(_hs*10)+'%;"></div>'+
+      '<div class="sl-track"><div class="sl-fill" id="hf" style="width:'+(_hs*20)+'%;"></div>'+
       '<div class="sl-thumb" id="ht" style="left:calc('+(_hs*20)+'% - 10px);"></div>'+
       '<input type="range" min="0" max="50" step="1" value="'+Math.round(_hs*10)+'" class="sl-range" oninput="upd(\'show\',this.value)"></div>'+
       '<div class="sl-mm"><span>0.0</span><span>5.0</span></div>'+
@@ -477,7 +489,19 @@ function renderPred(c){
     _pks.map((p,i)=>{const c2=p?countries.find(x=>String(x.id)===String(p)):null;return'<div class="slot'+(c2?'':' slot-e')+'"><div class="sn" style="'+sc[i]+'">'+(i+1)+'</div>'+(c2?flagEl(c2.name,'sm')+'<div style="flex:1;min-width:0;"><div class="h3" style="font-size:14px;">'+esc(c2.name)+'</div><div class="sm">'+esc(c2.artist||'')+'</div></div><button onclick="remPk('+i+')" style="background:none;border:none;color:var(--border);font-size:18px;cursor:pointer;padding:4px;">✕</button>':'<div class="fc-sm" style="background:var(--border);"><span style="color:var(--light);font-size:14px;">?</span></div><div class="sm" style="font-style:italic;">Выбери ниже</div>')+'</div>'}).join('')+
     '<div class="xs" style="margin:12px 0 8px;">Все страны</div>'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:80px;">'+
-    countries.map(c2=>{const u=used.has(String(c2.id));return'<div onclick="'+(u?'':'addPk(\''+c2.id+'\')')+'" style="background:var(--card);border-radius:var(--r);padding:10px;display:flex;align-items:center;gap:8px;cursor:'+(u?'default':'pointer')+';opacity:'+(u?.3:1)+';border:1px solid var(--border);">'+flagEl(c2.name,'sm')+'<div style="min-width:0;"><div class="h3" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(c2.name)+'</div><div class="sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(c2.artist||'')+'</div></div></div>'}).join('')+
+    countries.map(c2=>{
+      const u=used.has(String(c2.id));
+      const mv=myVotes[c2.id];
+      const avgStr=mv?((mv.song_score+mv.show_score)/2).toFixed(1):null;
+      return'<div onclick="'+(u?'':'addPk(\''+c2.id+'\')') +'" style="background:var(--card);border-radius:var(--r);padding:10px;display:flex;align-items:center;gap:8px;cursor:'+(u?'default':'pointer')+';opacity:'+(u?.3:1)+';border:1px solid var(--border);">'+
+        flagEl(c2.name,'sm')+
+        '<div style="min-width:0;flex:1;">'+
+          '<div class="h3" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(c2.name)+'</div>'+
+          '<div class="sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(c2.artist||'')+'</div>'+
+        '</div>'+
+        (avgStr?'<div style="font-size:12px;font-weight:700;color:var(--coral);flex-shrink:0;">'+avgStr+'</div>':'')+
+      '</div>';
+    }).join('')+
     '</div></div>'+
     '<div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;padding:12px 16px max(16px,env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--border);z-index:10;">'+
       '<button class="btn btn-dk" '+(_pks.filter(Boolean).length===5?'':'disabled')+' onclick="savePred()">Сохранить предикт 🏆</button>'+
@@ -823,12 +847,16 @@ function renderAdm(c){
       '<div class="adm-ttl">Официальный топ-5 Eurovision</div>'+
       [0,1,2,3,4].map(i=>{
         const cid=off5[i];
+        /* exclude countries already selected in other slots */
+        const otherSelected=off5.filter((_,j)=>j!==i&&off5[j]);
         return'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
           '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">'+(i+1)+'</div>'+
-          '<select class="ei" onchange="setOff('+i+',this.value)">'+
+          '<select class="ei" onchange="setOff('+i+',this.value);renderAdm($(\'s-adm\'))">'+
             '<option value="">— место '+(i+1)+' —</option>'+
-            countries.map(co=>'<option value="'+co.id+'" '+(String(cid)===String(co.id)?'selected':'')+'>'+co.name+'</option>').join('')+
+            countries.filter(co=>!otherSelected.includes(String(co.id))&&String(co.id)!==String(cid)||String(co.id)===String(cid))
+              .map(co=>'<option value="'+co.id+'" '+(String(cid)===String(co.id)?'selected':'')+'>'+co.name+'</option>').join('')+
           '</select>'+
+          (cid?flagEl(countries.find(co=>String(co.id)===String(cid))?.name||'','sm'):'')+
         '</div>';
       }).join('')+
       '<button class="btn btn-dk" style="margin-top:4px;padding:11px;" onclick="saveOff5()">Сохранить официальный топ-5</button>'+
