@@ -400,7 +400,7 @@ function renderCList(){
 
 function selC(id){
   const c=countries.find(x=>x.id===id);if(!c)return;
-  _sc=c;const ex=myVotes[id];_ss=ex?ex.song_score:5.0;_hs=ex?ex.show_score:5.0;renderSSheet();
+  _sc=c;const ex=myVotes[id];_ss=ex?ex.song_score:2.5;_hs=ex?ex.show_score:2.5;renderSSheet();
 }
 
 function renderSSheet(){
@@ -418,15 +418,15 @@ function renderSSheet(){
       '<div class="sl-lbl"><div class="xs" style="color:rgba(255,255,255,.7);">🎵 ПЕСНЯ</div><div class="sl-val" id="sv">'+_ss.toFixed(1)+'</div></div>'+
       '<div class="sl-track"><div class="sl-fill" id="sf" style="width:'+(_ss*10)+'%;"></div>'+
       '<div class="sl-thumb" id="st" style="left:calc('+(_ss*10)+'% - 10px);"></div>'+
-      '<input type="range" min="0" max="100" step="1" value="'+Math.round(_ss*10)+'" class="sl-range" oninput="upd(\'song\',this.value)"></div>'+
-      '<div class="sl-mm"><span>0.0</span><span>10.0</span></div>'+
+      '<input type="range" min="0" max="50" step="1" value="'+Math.round(_ss*10)+'" class="sl-range" oninput="upd(\'song\',this.value)"></div>'+
+      '<div class="sl-mm"><span>0.0</span><span>5.0</span></div>'+
     '</div>'+
     '<div class="sl-card" style="background:var(--rose);">'+
       '<div class="sl-lbl"><div class="xs" style="color:rgba(255,255,255,.7);">🎭 ШОУ</div><div class="sl-val" id="hv">'+_hs.toFixed(1)+'</div></div>'+
       '<div class="sl-track"><div class="sl-fill" id="hf" style="width:'+(_hs*10)+'%;"></div>'+
       '<div class="sl-thumb" id="ht" style="left:calc('+(_hs*10)+'% - 10px);"></div>'+
-      '<input type="range" min="0" max="100" step="1" value="'+Math.round(_hs*10)+'" class="sl-range" oninput="upd(\'show\',this.value)"></div>'+
-      '<div class="sl-mm"><span>0.0</span><span>10.0</span></div>'+
+      '<input type="range" min="0" max="50" step="1" value="'+Math.round(_hs*10)+'" class="sl-range" oninput="upd(\'show\',this.value)"></div>'+
+      '<div class="sl-mm"><span>0.0</span><span>5.0</span></div>'+
     '</div>'+
     '<div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
       '<div class="sm" style="font-weight:600;">Средний балл</div>'+
@@ -550,9 +550,18 @@ function renderRev(c){
     const phTitle={song:'🎵 Топ-5 по ПЕСНЕ',show:'🎭 Топ-5 по НОМЕРУ',total:'🏆 Общий победитель'};
     const bg=phBg[_rph];
     const medals=['🥇','🥈','🥉','4','5'];
-    /* _rd is reversed (5→1), reverse back for display 1→5 */
-    const top5=[..._rd].reverse();
+    /* build full ranked list of ALL countries */
     const allUsers=Object.keys(allVotes);
+    const allScored=Object.values(Object.fromEntries(countries.map(c=>[c.id,{country:c,total:0,count:0,voters:{}}]))).map(s=>{
+      Object.entries(allVotes).forEach(([u,uv])=>{
+        const v=uv[s.country.id];
+        if(!v)return;
+        const val=_rph==='song'?v.song_score:_rph==='show'?v.show_score:(v.song_score+v.show_score);
+        s.total+=val;s.count++;
+        s.voters[u]=_rph==='total'?((v.song_score+v.show_score)/2).toFixed(2):(val).toFixed(1);
+      });
+      return s;
+    }).filter(s=>s.count>0).sort((a,b)=>(b.total/b.count)-(a.total/a.count));
 
     c.innerHTML=
       '<div class="abar"><div class="h3">'+phTitle[_rph]+'</div><div></div></div>'+
@@ -561,19 +570,21 @@ function renderRev(c){
         '<div style="font-size:13px;color:var(--muted);margin-bottom:4px;">Итоговая таблица</div>'+
         '<div class="h2" style="font-size:20px;">'+phTitle[_rph]+'</div>'+
       '</div>'+
-      top5.map((item,i)=>{
+      allScored.map((item,i)=>{
         const place=i+1;
         const avg=_rph==='total'?(item.total/item.count/2).toFixed(2):(item.total/item.count).toFixed(2);
-        return'<div style="background:var(--card);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;'+(place===1?'border:2px solid '+bg+';':'')+'">'+
+        const medal=place===1?'🥇':place===2?'🥈':place===3?'🥉':place;
+        const isTop=place<=3;
+        return'<div style="background:var(--card);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;'+(isTop?'border:2px solid '+bg+';':'')+'">'+
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:'+(allUsers.length?'8px':'0')+';">'+
-            '<div style="font-size:'+(place<=3?'22px':'16px')+';width:28px;text-align:center;">'+medals[i]+'</div>'+
+            '<div style="font-size:'+(isTop?'20px':'13px')+';font-weight:700;width:28px;text-align:center;color:'+(isTop?'inherit':'var(--muted)')+';">'+medal+'</div>'+
             flagEl(item.country.name,'sm')+
             '<div style="flex:1;min-width:0;">'+
               '<div class="h3" style="font-size:14px;">'+esc(item.country.name)+'</div>'+
               '<div class="sm">'+esc(item.country.artist||'')+'</div>'+
             '</div>'+
             '<div style="text-align:right;flex-shrink:0;">'+
-              '<div style="font-size:18px;font-weight:800;color:'+bg+';font-family:\'Plus Jakarta Sans\',sans-serif;">'+avg+'</div>'+
+              '<div style="font-size:'+(isTop?'18px':'15px')+';font-weight:800;color:'+bg+';font-family:\'Plus Jakarta Sans\',sans-serif;">'+avg+'</div>'+
               '<div style="font-size:10px;color:var(--light);">ср. балл</div>'+
             '</div>'+
           '</div>'+
