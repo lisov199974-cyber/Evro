@@ -873,22 +873,7 @@ function renderAdm(c){
     /* OFFICIAL TOP5 */
     '<div class="adm-sec">'+
       '<div class="adm-ttl">Официальный топ-5 Eurovision</div>'+
-      [0,1,2,3,4].map(i=>{
-        const cid=String(off5[i]||'');
-        /* ids already chosen in OTHER slots */
-        const taken=new Set(off5.filter((_,j)=>j!==i).map(x=>String(x||'')).filter(Boolean));
-        const selC=cid?countries.find(co=>String(co.id)===cid):null;
-        return'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
-          '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">'+(i+1)+'</div>'+
-          '<select class="ei" onchange="setOff('+i+',this.value)">'+
-            '<option value="">— место '+(i+1)+' —</option>'+
-            countries
-              .filter(co=>!taken.has(String(co.id))||String(co.id)===cid)
-              .map(co=>'<option value="'+co.id+'" '+(String(co.id)===cid?'selected':'')+'>'+co.name+'</option>').join('')+
-          '</select>'+
-          (selC?flagEl(selC.name,'sm'):'')+
-        '</div>';
-      }).join('')+
+      '<div id="off5-slots"></div>'+
       '<button class="btn btn-dk" style="margin-top:4px;padding:11px;" onclick="saveOff5()">Сохранить официальный топ-5</button>'+
     '</div>'+
 
@@ -906,6 +891,7 @@ function renderAdm(c){
     '</div>'+
     '</div>';
   renderACL();
+  renderOff5Slots();
 }
 
 async function switchMode(mode){
@@ -920,12 +906,29 @@ async function switchMode(mode){
 }
 
 function setOff(i,val){
-  /* ensure off5 is properly sized */
   while(off5.length<5)off5.push('');
   off5[i]=val?parseInt(val):'';
-  /* re-render admin to update dropdowns */
-  const adm=$('s-adm');
-  if(adm)renderAdm(adm);
+  /* only re-render the off5 slots, not the whole admin screen */
+  renderOff5Slots();
+}
+
+function renderOff5Slots(){
+  const el=$('off5-slots');
+  if(!el)return;
+  el.innerHTML=[0,1,2,3,4].map(i=>{
+    const cid=String(off5[i]||'');
+    const taken=new Set(off5.filter((_,j)=>j!==i).map(x=>String(x||'')).filter(Boolean));
+    const selC=cid?countries.find(co=>String(co.id)===cid):null;
+    return'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
+      '<div style="width:22px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">'+(i+1)+'</div>'+
+      '<select class="ei" onchange="setOff('+i+',this.value)">'+
+        '<option value="">— место '+(i+1)+' —</option>'+
+        countries.filter(co=>!taken.has(String(co.id))||String(co.id)===cid)
+          .map(co=>'<option value="'+co.id+'" '+(String(co.id)===cid?'selected':'')+'>'+co.name+'</option>').join('')+
+      '</select>'+
+      (selC?flagEl(selC.name,'sm'):'')+
+    '</div>';
+  }).join('');
 }
 async function saveOff5(){
   const v=JSON.stringify(off5.map(x=>x||''));
